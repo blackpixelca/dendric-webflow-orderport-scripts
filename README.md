@@ -14,17 +14,18 @@ This repo is public so Webflow can load the scripts through jsDelivr.
 Shop page footer:
 
 ```html
-<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@6f96b6a2e1a6651d24d27e1ba09dcaa6183ac0a0/scripts/dendric-shop-op.js"></script>
+<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@739b73c8a51da7bb76cf856cdf7b2e4ad2216935/scripts/dendric-shop-op.js"></script>
 ```
 
 Product template footer:
 
 ```html
-<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@6f96b6a2e1a6651d24d27e1ba09dcaa6183ac0a0/scripts/dendric-product-op.js"></script>
+<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@739b73c8a51da7bb76cf856cdf7b2e4ad2216935/scripts/dendric-product-op.js"></script>
 ```
 
 ## Notes
 
 - OrderPort startup is loaded by each script only if it is not already present.
 - Native OrderPort controls are kept visually hidden; Webflow-built UI controls remain the visible interface.
+- Add to cart uses OrderPort's native cart facade first so the embedded side cart state updates immediately.
 - Product availability and SKUs are configured in each script's `productMap`.
