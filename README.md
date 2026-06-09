@@ -14,13 +14,13 @@ This repo is public so Webflow can load the scripts through jsDelivr.
 Shop page footer:
 
 ```html
-<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@main/scripts/dendric-shop-op.js?v=20260609-2"></script>
+<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@6f96b6a2e1a6651d24d27e1ba09dcaa6183ac0a0/scripts/dendric-shop-op.js"></script>
 ```
 
 Product template footer:
 
 ```html
-<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@main/scripts/dendric-product-op.js?v=20260609-2"></script>
+<script defer src="https://cdn.jsdelivr.net/gh/blackpixelca/dendric-webflow-orderport-scripts@6f96b6a2e1a6651d24d27e1ba09dcaa6183ac0a0/scripts/dendric-product-op.js"></script>
 ```
 
 ## Notes
