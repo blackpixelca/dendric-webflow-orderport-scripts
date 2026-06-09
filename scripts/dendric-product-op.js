@@ -19,6 +19,9 @@
     },
   };
 
+  let orderPortReadyPromise;
+  let orderPortApiSessionPromise;
+
   const ready = (fn) => {
     document.readyState === "loading"
       ? document.addEventListener("DOMContentLoaded", fn, { once: true })
@@ -89,44 +92,155 @@
     }
   };
 
-  const loadOrderPortStartup = () => {
-    if (document.querySelector("script[data-dendric-op-startup]")) return;
+  const waitForOrderPortElements = () => {
+    const tags = ["op-side-cart", "op-side-cart-toggle", "op-auth-status"];
 
-    const script = document.createElement("script");
-    script.src = "https://dendricestate.orderport.net/web-components/startup.js?v=1.7";
-    script.setAttribute("data-dendric-op-startup", "true");
-    document.body.append(script);
+    return Promise.all(tags.map((tag) => customElements.whenDefined(tag))).then(() => {
+      return new Promise((resolve) => window.setTimeout(resolve, 300));
+    });
+  };
+
+  const loadOrderPortStartup = () => {
+    if (orderPortReadyPromise) return orderPortReadyPromise;
+
+    orderPortReadyPromise = new Promise((resolve) => {
+      const existing = document.querySelector("script[data-dendric-op-startup]");
+
+      const finish = () => {
+        waitForOrderPortElements().then(resolve).catch(resolve);
+      };
+
+      if (existing) {
+        finish();
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://dendricestate.orderport.net/web-components/startup.js?v=1.7";
+      script.setAttribute("data-dendric-op-startup", "true");
+      script.addEventListener("load", finish, { once: true });
+      script.addEventListener("error", resolve, { once: true });
+      document.body.append(script);
+    });
+
+    return orderPortReadyPromise;
   };
 
   const clickOrderPortCartToggle = () => {
     const toggle = document.querySelector("op-side-cart-toggle");
-    const target = toggle?.querySelector(".shopping-cart-icon,button,a,[role='button'],svg") || toggle;
-    target?.click();
+    if (!toggle) return;
+
+    const root = toggle.shadowRoot || toggle;
+    const target = root.querySelector(".shopping-cart-icon,button,a,[role='button'],svg") || toggle;
+
+    target.click();
+  };
+
+  const isOrderPortCartOpen = () => {
+    return !!document.querySelector("op-side-cart .side-cart.open");
+  };
+
+  const openOrderPortCart = () => {
+    if (!isOrderPortCartOpen()) {
+      clickOrderPortCartToggle();
+      return;
+    }
+
+    clickOrderPortCartToggle();
+    window.setTimeout(clickOrderPortCartToggle, 150);
+  };
+
+  const getOrderPortApiSession = () => {
+    if (orderPortApiSessionPromise) return orderPortApiSessionPromise;
+
+    orderPortApiSessionPromise = fetch("https://dendricestate.orderport.net/wwwapps/api/app-init/webstore?wc=true", {
+      credentials: "include",
+    })
+      .then((response) => {
+        if (!response.ok) throw new Error(`OrderPort app-init failed: ${response.status}`);
+        return response.json();
+      })
+      .then((json) => {
+        const data = json.data || json.Data;
+        if (!data?.apiUrl || !data?.auth?.param) {
+          throw new Error("OrderPort app-init did not return API auth data.");
+        }
+
+        return {
+          apiUrl: data.apiUrl,
+          altSid: data.session?.altSid || "",
+          authorization: `${data.auth.scheme || "Bearer"} ${data.auth.param}`,
+        };
+      });
+
+    return orderPortApiSessionPromise;
+  };
+
+  const postOrderPortCartItem = async (sku, qty) => {
+    const session = await getOrderPortApiSession();
+    const headers = {
+      accept: "application/json, text/plain, */*",
+      "api-version": "1.0.0.2",
+      "app-type": "webstore",
+      authorization: session.authorization,
+      "content-type": "application/json",
+    };
+
+    if (session.altSid) headers["alt-sid"] = session.altSid;
+
+    const response = await fetch(
+      `${session.apiUrl}/webcart/00000000-0000-0000-0000-000000000000/items/${encodeURIComponent(sku)}`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers,
+        body: JSON.stringify({ item: { opsku: sku, qty } }),
+      },
+    );
+
+    const json = await response.json().catch(() => null);
+
+    if (!response.ok || (json && (json.status || json.Status) !== "Success")) {
+      throw new Error(`OrderPort add to cart failed for ${sku}.`);
+    }
+
+    return json?.data || json?.Data;
   };
 
   const setupNavOrderPort = () => {
-    const welcome = document.querySelector("[op-auth-welcome]");
-    const login = document.querySelector("[op-auth-login]");
-    const cart = document.querySelector("[op-cart-open]");
-
-    if (welcome && !getText(welcome)) welcome.textContent = "Welcome";
-
-    login?.addEventListener("click", (event) => {
-      event.preventDefault();
-      const auth = document.querySelector("op-auth-status");
-      const link = auth?.querySelector("a[href]");
-      if (link) link.click();
+    queryAll("[op-auth-welcome]").forEach((welcome) => {
+      if (!getText(welcome)) welcome.textContent = "Welcome";
     });
 
-    cart?.addEventListener("click", (event) => {
-      event.preventDefault();
-      clickOrderPortCartToggle();
+    queryAll("[op-auth-login]").forEach((login) => {
+      if (login.dataset.dendricOpLoginReady) return;
+      login.dataset.dendricOpLoginReady = "true";
+
+      login.addEventListener("click", (event) => {
+        event.preventDefault();
+
+        const auth = document.querySelector("op-auth-status");
+        const root = auth?.shadowRoot || auth;
+        const link = root?.querySelector("a[href]");
+
+        link?.click();
+      });
     });
 
-    cart?.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      event.preventDefault();
-      clickOrderPortCartToggle();
+    queryAll("[op-cart-open]").forEach((cart) => {
+      if (cart.dataset.dendricOpCartReady) return;
+      cart.dataset.dendricOpCartReady = "true";
+
+      cart.addEventListener("click", (event) => {
+        event.preventDefault();
+        clickOrderPortCartToggle();
+      });
+
+      cart.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        clickOrderPortCartToggle();
+      });
     });
   };
 
@@ -198,60 +312,6 @@
       };
     };
 
-    const createNativeAdds = () => {
-      product.querySelectorAll("op-add-to-cart[data-dendric-product-native]").forEach((element) => element.remove());
-
-      Object.entries(getProductConfig()).forEach(([size, variant]) => {
-        if (!variant?.sku || !variant.available) return;
-
-        product.append(
-          createElement("op-add-to-cart", {
-            opsku: variant.sku,
-            text: "Add to Cart",
-            "qty-visible": "yes",
-            "data-dendric-product-native": "true",
-            "data-dendric-size": size,
-            class: "op-native-add",
-          }),
-        );
-      });
-    };
-
-    const getNativeAdd = (sku) => {
-      return product.querySelector(`op-add-to-cart[data-dendric-product-native][opsku='${CSS.escape(sku)}']`);
-    };
-
-    const syncNativeQty = (native, qty) => {
-      const input =
-        native?.querySelector("input[formcontrolname='qty']") ||
-        native?.querySelector("input[formControlName='qty']") ||
-        native?.querySelector("input[type='number'],input[type='text']");
-
-      if (!input) return;
-
-      input.value = qty;
-      input.setAttribute("value", qty);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      input.dispatchEvent(new Event("blur", { bubbles: true }));
-    };
-
-    const getNativeSubmit = (native) => {
-      return native?.querySelector("button[type='submit'],button.btn-primary,button");
-    };
-
-    const waitForNativeSubmit = (native, callback, attempt = 0) => {
-      const submit = getNativeSubmit(native);
-      if (submit && !submit.disabled) {
-        callback(submit);
-        return;
-      }
-
-      if (attempt < 30) {
-        window.setTimeout(() => waitForNativeSubmit(native, callback, attempt + 1), 100);
-      }
-    };
-
     const setUnavailableProductState = () => {
       product.querySelector("[variant-lowest]")?.style.setProperty("display", "none");
       product.querySelector("[op-card-qty], .products_main_quantity, .product_main_quantity")?.style.setProperty("display", "none");
@@ -296,8 +356,6 @@
 
     const options = queryAll("[variant-select]", product);
 
-    createNativeAdds();
-
     if (options.length && !options.some((option) => option.classList.contains(SELECTED_CLASS) || option.classList.contains("is-active"))) {
       options[0].classList.add(SELECTED_CLASS);
     }
@@ -333,20 +391,26 @@
       event.preventDefault();
 
       const selection = getSelection();
-      if (!selection.available) return;
+      if (!selection.available || product.dataset.dendricAdding === "true") return;
 
-      const native = getNativeAdd(selection.sku);
-      syncNativeQty(native, getQty());
+      product.dataset.dendricAdding = "true";
       setButtonText("Adding...");
 
-      waitForNativeSubmit(native, (submit) => {
-        submit.click();
-
-        window.setTimeout(() => {
-          clickOrderPortCartToggle();
+      postOrderPortCartItem(selection.sku, getQty())
+        .then(() => {
+          setButtonText("Added");
+          window.setTimeout(openOrderPortCart, 300);
+        })
+        .catch((error) => {
+          console.error(error);
           setButtonText("Add to Cart");
-        }, 450);
-      });
+        })
+        .finally(() => {
+          window.setTimeout(() => {
+            delete product.dataset.dendricAdding;
+            setButtonText("Add to Cart");
+          }, 1200);
+        });
     });
 
     syncProduct();
@@ -354,10 +418,10 @@
 
   ready(() => {
     ensureOrderPortShell();
-    setupProductOrderPort();
     setupNavOrderPort();
-    loadOrderPortStartup();
-    window.setTimeout(setupProductOrderPort, 900);
+    loadOrderPortStartup().then(() => {
+      setupProductOrderPort();
+      window.setTimeout(setupProductOrderPort, 900);
+    });
   });
 })();
-
