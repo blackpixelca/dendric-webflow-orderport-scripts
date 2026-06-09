@@ -187,7 +187,29 @@
     return !!document.querySelector("op-side-cart .side-cart.open");
   };
 
+  const getOrderPortCartFacade = () => {
+    const candidates = [
+      document.querySelector("op-side-cart"),
+      document.querySelector("op-side-cart-details"),
+      document.querySelector("op-side-cart-toggle"),
+    ];
+
+    for (const element of candidates) {
+      const facade = element?._ngElementStrategy?.componentRef?.instance?.cartStoreFacade;
+      if (facade?.addCartItem && facade?.setSideCartIsOpen) return facade;
+    }
+
+    return null;
+  };
+
   const openOrderPortCart = () => {
+    const facade = getOrderPortCartFacade();
+
+    if (facade?.setSideCartIsOpen) {
+      facade.setSideCartIsOpen(true);
+      return;
+    }
+
     if (!isOrderPortCartOpen()) {
       clickOrderPortCartToggle();
       return;
@@ -252,6 +274,58 @@
     }
 
     return json?.data || json?.Data;
+  };
+
+  const addOrderPortCartItem = (sku, qty) => {
+    const facade = getOrderPortCartFacade();
+
+    if (!facade?.addCartItem || !facade?.webCartState$?.cartItemActionResultState$?.subscribe) {
+      return postOrderPortCartItem(sku, qty).then((cart) => {
+        getOrderPortCartFacade()?.fetchWebCart?.(true);
+        openOrderPortCart();
+        return cart;
+      });
+    }
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      let subscription;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        subscription?.unsubscribe?.();
+        reject(new Error(`OrderPort native add to cart timed out for ${sku}.`));
+      }, 8000);
+
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        subscription?.unsubscribe?.();
+        callback(value);
+      };
+
+      subscription = facade.webCartState$.cartItemActionResultState$.subscribe((state) => {
+        const callState = String(state?.callState || "").toUpperCase();
+        const resultSku = state?.result?.opsku;
+
+        if (callState === "LOADED" && (!resultSku || resultSku === sku)) {
+          facade.setSideCartIsOpen(true);
+          finish(resolve, state.result);
+        }
+
+        if (callState === "ERROR") {
+          finish(reject, new Error(`OrderPort native add to cart failed for ${sku}.`));
+        }
+      });
+
+      try {
+        facade.addCartItem({ opsku: sku, qty });
+        facade.setSideCartIsOpen(true);
+      } catch (error) {
+        finish(reject, error);
+      }
+    });
   };
 
   const setupNavOrderPort = () => {
@@ -611,10 +685,10 @@
         card.dataset.dendricAdding = "true";
         setButtonText(card, "Adding...");
 
-        postOrderPortCartItem(selection.sku, getQty(card))
+        addOrderPortCartItem(selection.sku, getQty(card))
           .then(() => {
             setButtonText(card, "Added");
-            window.setTimeout(openOrderPortCart, 300);
+            window.setTimeout(openOrderPortCart, 100);
           })
           .catch((error) => {
             console.error(error);
