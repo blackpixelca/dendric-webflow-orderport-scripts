@@ -219,6 +219,26 @@
     window.setTimeout(clickOrderPortCartToggle, 150);
   };
 
+  const refreshAndOpenOrderPortCart = (facade = getOrderPortCartFacade()) => {
+    [0, 250, 900, 1800].forEach((delay) => {
+      window.setTimeout(() => {
+        const activeFacade = facade || getOrderPortCartFacade();
+
+        try {
+          activeFacade?.fetchWebCart?.(true);
+        } catch (error) {
+          console.warn("OrderPort cart refresh failed.", error);
+        }
+
+        if (activeFacade?.setSideCartIsOpen) {
+          activeFacade.setSideCartIsOpen(true);
+        } else if (!isOrderPortCartOpen()) {
+          clickOrderPortCartToggle();
+        }
+      }, delay);
+    });
+  };
+
   const getOrderPortApiSession = () => {
     if (orderPortApiSessionPromise) return orderPortApiSessionPromise;
 
@@ -281,8 +301,7 @@
 
     if (!facade?.addCartItem || !facade?.webCartState$?.cartItemActionResultState$?.subscribe) {
       return postOrderPortCartItem(sku, qty).then((cart) => {
-        getOrderPortCartFacade()?.fetchWebCart?.(true);
-        openOrderPortCart();
+        refreshAndOpenOrderPortCart();
         return cart;
       });
     }
@@ -310,7 +329,7 @@
         const resultSku = state?.result?.opsku;
 
         if (callState === "LOADED" && (!resultSku || resultSku === sku)) {
-          facade.setSideCartIsOpen(true);
+          refreshAndOpenOrderPortCart(facade);
           finish(resolve, state.result);
         }
 
@@ -321,7 +340,7 @@
 
       try {
         facade.addCartItem({ opsku: sku, qty });
-        facade.setSideCartIsOpen(true);
+        refreshAndOpenOrderPortCart(facade);
       } catch (error) {
         finish(reject, error);
       }
